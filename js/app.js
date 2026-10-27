@@ -27,12 +27,12 @@ let theme = loadSavedTheme(document.documentElement, storage);
 let toastTimer;
 
 const tabs = [
-  ['cockpit', '◫', 'Morning cockpit'],
-  ['payrun', '💵', 'Gross-to-net pay run'],
-  ['direct-deposit', '🏦', 'Direct deposit & FedNow'],
-  ['tax-filings', '🏛', '941 / W-2 / 1099 e-file'],
-  ['compliance', '⚖', 'Meal-break & tip credits'],
-  ['books-sync', '◈', 'Open Books v3.3 GL sync']
+  ['cockpit', '◫', 'Payroll Overview'],
+  ['payrun', '💵', 'Run Payroll (W-2 & 1099)'],
+  ['direct-deposit', '🏦', 'Direct Deposit Batches'],
+  ['tax-filings', '🏛', 'Tax Filings (941 / W-2 / 1099)'],
+  ['compliance', '⚖', 'Timecards & Tip Credits'],
+  ['books-sync', '◈', 'General Ledger Sync']
 ];
 
 const badge = (text, type = 'neutral') => `<span class="badge ${type}">${e(text)}</span>`;
@@ -119,38 +119,36 @@ function selectPreset(presetId) {
 }
 
 function renderCockpit() {
-  const preset = payrollPresets.find(p => p.id === state.activePresetId) || payrollPresets[0];
-  const calc = calculatePayrollSavings(state.calculator);
   const summary = computePayRunSummary(state);
-  const activeLayer = architectureLayers.find(l => l.id === state.activeLayerId) || architectureLayers[0];
+  const tb = trialBalance(state);
 
   return `
     ${pageTop(
-      'WHITE-LABEL ADP, GUSTO, PAYCHEX & RIPPLING REPLACEMENT · @OPENSCAFFOLD/PAYROLL V1.0',
-      'Zero Per-Employee Payroll & Automated Tax E-Filing OS',
-      `Payroll is strictly tax-table math, a $0.15 NACHA ACH batch, and IRS/State XML e-filings. Open Payroll OS eliminates $6–$18/employee monthly rent, 4-day float holds, and manual payroll journal re-keying across all 17 Open Scaffold Labs verticals.`,
-      button('Run Pay Period & Post to Open Books', 'run-payroll-now', 'primary')
+      'PAYROLL & TAX OPERATIONS OVERVIEW',
+      `${summary.preset.employer} — Pay Period Ending ${state.payRun.periodEnding}`,
+      `Review upcoming payroll totals, employee net direct deposits, federal EFTPS and state tax liabilities, and active W-2 / 1099 roster before originating the pay run.`,
+      button('Approve & Run Payroll Now', 'run-payroll-now', 'primary')
     )}
     <div class="kpi-grid">
       <article class="kpi-card">
-        <span class="eyebrow">ANNUAL FEE + TAX CREDIT IMPACT</span>
-        <strong class="kpi-value">${money(calc.totalEconomicBenefit, 0)}/yr</strong>
-        <p>${money(calc.directFeeSavings, 0)} fee savings + ${money(calc.ficaTipCredit45B, 0)} § 45B tip credit</p>
+        <span class="eyebrow">CURRENT PERIOD GROSS PAYROLL</span>
+        <strong class="kpi-value">${money(summary.totals.grossPay)}</strong>
+        <p>${summary.stubs.length} active payees (${summary.preset.w2Count} W-2 · ${summary.preset.contractorCount} 1099)</p>
       </article>
       <article class="kpi-card">
-        <span class="eyebrow">PER-EMPLOYEE MONTHLY RENT</span>
-        <strong class="kpi-value">$0.00 / employee</strong>
-        <p>vs. $6–$18/mo per head on Gusto, ADP &amp; Rippling</p>
+        <span class="eyebrow">NET DIRECT DEPOSIT PAYOUT</span>
+        <strong class="kpi-value">${money(summary.totals.netPay)}</strong>
+        <p>Check date: ${e(state.payRun.checkDate)} · ${e(summary.bank.name)}</p>
       </article>
       <article class="kpi-card">
-        <span class="eyebrow">DIRECT DEPOSIT RAIL COST</span>
-        <strong class="kpi-value">$0.15 flat ACH</strong>
-        <p>$0.045 FedNow instant wage payout · 0-day float hold</p>
+        <span class="eyebrow">FEDERAL EFTPS + STATE TAX DUE</span>
+        <strong class="kpi-value">${money(summary.totals.eftpsDeposit + summary.totals.stateTaxDeposit)}</strong>
+        <p>${money(summary.totals.eftpsDeposit)} IRS EFTPS · ${money(summary.totals.stateTaxDeposit)} State</p>
       </article>
       <article class="kpi-card">
-        <span class="eyebrow">OPEN BOOKS V3.3 VARIANCE</span>
-        <strong class="kpi-value">$0.00 Variance</strong>
-        <p>${state.achBatches.length} settled pay runs · auto 941/DE-9/W-2/1099</p>
+        <span class="eyebrow">GENERAL LEDGER STATUS</span>
+        <strong class="kpi-value">${tb.balanced ? '$0.00 Variance' : 'Check Variance'}</strong>
+        <p>${state.achBatches.length} settled pay runs · ${state.journals.length} GL journals posted</p>
       </article>
     </div>
 
@@ -158,68 +156,60 @@ function renderCockpit() {
       <section class="card">
         <div class="card-head">
           <div>
-            <span class="eyebrow">5-LAYER PAYROLL &amp; TAX ARCHITECTURE</span>
-            <h2>Why Legacy Payroll Bureaus Charge $5,000–$12,000/yr for Free Math</h2>
+            <span class="eyebrow">ACTIVE PAYROLL ROSTER PREVIEW</span>
+            <h2>Employees &amp; Contractors (${summary.preset.payFrequency})</h2>
           </div>
-          ${badge('100% Owned Stack', 'positive')}
+          ${badge(`EIN ${summary.preset.ein} · ${summary.preset.state}`, 'positive')}
         </div>
-        <div class="layer-list">
-          ${architectureLayers.map(layer => `
-            <button type="button" class="layer-item ${layer.id === activeLayer.id ? 'active' : ''}" data-action="select-layer" data-layer="${layer.id}">
-              <div>
-                <strong>${e(layer.number)} · ${e(layer.title)}</strong>
-                <small>${e(layer.replacement)}</small>
-              </div>
-              ${badge(layer.savingMetric, 'positive')}
-            </button>
-          `).join('')}
-        </div>
-        <div class="callout" style="margin-top:1rem">
-          <strong>${e(activeLayer.number)}: ${e(activeLayer.title)}</strong>
-          <p>${e(activeLayer.summary)}</p>
-          <p><strong>Legacy Bureau Toll:</strong> ${e(activeLayer.legacyTax)}<br><strong>Open Payroll Cost:</strong> ${e(activeLayer.openPayrollCost)}</p>
-        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Payee</th>
+              <th>Role / Dept</th>
+              <th>Classification</th>
+              <th>Gross</th>
+              <th>Taxes / 401k</th>
+              <th>Net Pay</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${summary.stubs.map(s => `
+              <tr>
+                <td><strong>${e(s.name)}</strong></td>
+                <td>${e(s.role)}<br><small>${e(s.dept)}</small></td>
+                <td>${badge(s.type, s.type === '1099-NEC' ? 'attention' : 'positive')}</td>
+                <td class="mono">${money(s.grossPay)}</td>
+                <td class="mono">${money(s.totalEmployeeTaxes + s.preTax401k)}</td>
+                <td class="mono"><strong>${money(s.netPay)}</strong></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
       </section>
 
       <section class="card">
         <div class="card-head">
           <div>
-            <span class="eyebrow">INTERACTIVE PAYROLL &amp; § 45B TIP CREDIT CALCULATOR</span>
-            <h2>Compare ADP / Gusto / Paychex vs. Open Payroll OS</h2>
+            <span class="eyebrow">TAX IMPOUND &amp; DEPOSITORY SUMMARY</span>
+            <h2>Upcoming Pay Run &amp; Filing Schedule</h2>
           </div>
-          ${badge(preset.vertical, 'info')}
+          ${badge('EFTPS Auto-Debit Ready', 'info')}
         </div>
-        <div class="form-grid">
-          <label>W-2 Employees
-            <input type="number" min="1" max="500" value="${state.calculator.w2Employees}" data-calc="w2Employees">
-          </label>
-          <label>1099 Contractors
-            <input type="number" min="0" max="200" value="${state.calculator.contractors1099}" data-calc="contractors1099">
-          </label>
-          <label>Pay Runs / Year
-            <input type="number" min="12" max="52" value="${state.calculator.payRunsPerYear}" data-calc="payRunsPerYear">
-          </label>
-          <label>Legacy Per-Person Fee ($/mo)
-            <input type="number" min="4" max="35" value="${state.calculator.legacyPerPersonMonthly}" data-calc="legacyPerPersonMonthly">
-          </label>
-          <label>Annual Reported Tipped Wages ($)
-            <input type="number" min="0" step="5000" value="${state.calculator.annualTippedWages}" data-calc="annualTippedWages">
-          </label>
-          <label>Current Period Net Deposit Preview
-            <input type="text" readonly value="${money(summary.totals.netPay)} (${summary.stubs.length} payees)">
-          </label>
-        </div>
-        <table class="data-table" style="margin-top:1rem">
-          <thead>
-            <tr><th>Cost / Credit Component</th><th>Legacy Payroll Bureau</th><th>Open Payroll OS</th></tr>
-          </thead>
+        <table class="data-table">
           <tbody>
-            <tr><td>Annual Software &amp; Per-Employee Fees</td><td class="mono">${money(calc.legacyAnnualCost)}/yr</td><td class="mono">${money(calc.openPayrollLicense)}/yr</td></tr>
-            <tr><td>Direct Deposit ACH Rail Fees (${calc.totalPeople} payees × ${calc.runs} runs)</td><td class="mono">Included in 4-day float</td><td class="mono">${money(calc.openPayrollAchCost)}/yr ($0.15/tx)</td></tr>
-            <tr><td>IRS Form 8846 (§ 45B) FICA Tip Credit Recovered</td><td class="mono">$0.00 (Missed/Manual)</td><td class="mono">+${money(calc.ficaTipCredit45B)}/yr</td></tr>
-            <tr><td><strong>Total Net Annual Benefit to Business</strong></td><td class="mono">—</td><td class="mono"><strong>+${money(calc.totalEconomicBenefit)}/yr</strong></td></tr>
+            <tr><td><strong>Employer Legal Entity</strong></td><td>${e(summary.preset.employer)} (EIN ${e(summary.preset.ein)})</td></tr>
+            <tr><td><strong>Pay Period / Check Date</strong></td><td class="mono">Ending ${e(state.payRun.periodEnding)} · Payday ${e(state.payRun.checkDate)}</td></tr>
+            <tr><td><strong>Total Employee Withholdings</strong></td><td class="mono">${money(summary.totals.totalEmployeeTaxes)} (FIT, FICA, SIT, SDI)</td></tr>
+            <tr><td><strong>Total Employer Payroll Taxes</strong></td><td class="mono">${money(summary.totals.totalEmployerTaxes)} (ER FICA, FUTA, SUI, WC)</td></tr>
+            <tr><td><strong>Form 8846 (§ 45B) Tip Credit Offset</strong></td><td class="mono">+${money(summary.totals.erFicaTipCredit)}</td></tr>
+            <tr><td><strong>Origination Depository</strong></td><td>${e(summary.bank.name)} (ABA ${e(summary.bank.routing)})</td></tr>
           </tbody>
         </table>
+        <div style="margin-top:1rem;display:flex;gap:0.75rem;flex-wrap:wrap">
+          ${button('Approve & Submit Pay Run', 'run-payroll-now', 'primary')}
+          <a href="#tab-payrun" class="btn">Open Detailed Worksheet →</a>
+          <a href="#tab-tax-filings" class="btn">Review Tax Filings →</a>
+        </div>
       </section>
     </div>
   `;
@@ -301,9 +291,9 @@ function renderDirectDeposit() {
   const summary = computePayRunSummary(state);
   return `
     ${pageTop(
-      'LAYER 2 · SPONSOR BANK NACHA PPD/CCD & FEDNOW INSTANT WAGE RAILS',
-      'Direct Bank-to-Bank Payroll Origination (Zero 4-Day Float Hold)',
-      'Legacy payroll providers pull employer cash 3–4 business days before payday so they can pocket interest on your payroll float. Open Payroll OS originates NACHA PPD/CCD batches at $0.10–$0.15/tx or instant FedNow payouts at $0.045/tx straight through our Sponsor Bank ODFI.',
+      'DIRECT DEPOSIT & NACHA / FEDNOW BATCHES',
+      'Direct Bank-to-Bank Payroll Origination & Settlement',
+      'Configure your originating depository bank, select Same-Day NACHA PPD/CCD or instant FedNow payout rails, and review settled payroll batches.',
       button('Originate NACHA / FedNow Batch Now', 'run-payroll-now', 'primary')
     )}
     <div class="grid-2">
@@ -377,8 +367,8 @@ function renderTaxFilings() {
   const summary = computePayRunSummary(state);
   return `
     ${pageTop(
-      'LAYER 3 · AUTOMATED IRS MeF, EFTPS, SSA BSO & 50-STATE E-FILING',
-      'Zero-Touch 941, 940, DE-9, W-2 & 1099-NEC Electronic Filings',
+      'FEDERAL & STATE PAYROLL TAX E-FILINGS',
+      'Automated Form 941, 940, DE-9, W-2, 1099-NEC & Form 8846 Filings',
       'Every pay run automatically populates quarterly and annual federal/state tax returns and transmits EFTPS deposits—with zero year-end per-form W-2 or 1099-NEC surcharges.'
     )}
     <div class="grid-2">
@@ -406,9 +396,9 @@ function renderCompliance() {
   const lab = evaluateComplianceLab(state);
   return `
     ${pageTop(
-      'LAYER 4 · VERTICAL WAGE-HOUR SHIELD & § 45B TIP TAX CREDIT LAB',
-      'California Meal-Break Penalty Guard & IRS Form 8846 Tip Credit Engine',
-      'Generic payroll tools only record violations after the money is lost. Open Payroll OS prevents CA § 226.7 meal-break penalties before the 5th hour and automatically calculates IRS § 45B FICA Tip Tax Credits.'
+      'TIMECARDS, MEAL-BREAK COMPLIANCE & § 45B TIP CREDITS',
+      'Shift Compliance, Regular-Rate Overtime & Form 8846 Tip Tax Credit',
+      'Audit shift meal-break compliance under CA Labor Code § 226.7, calculate regular-rate overtime premiums, and compute IRS Form 8846 (§ 45B) employer FICA tip tax credits.'
     )}
     <div class="grid-2">
       <section class="card">
@@ -492,7 +482,7 @@ function renderBooksSync() {
   const tb = trialBalance(state);
   return `
     ${pageTop(
-      'LAYER 5 · @OPENSCAFFOLD/BOOKS V3.3 DOUBLE-ENTRY GL SYNC',
+      'GENERAL LEDGER PAYROLL JOURNAL SYNC',
       'Automated Multi-Dimensional Payroll Journal Entries ($0.00 Variance)',
       'Every pay run writes balanced double-entry journal lines directly into Open Books v3.3 across Department, Fund, and Job dimensions—eliminating manual payroll journal entry and reconciliation.',
       button('Post New Pay Run Journal', 'run-payroll-now', 'primary')

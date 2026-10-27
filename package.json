@@ -1,0 +1,1 @@
+{"name":"@openscaffold/payroll","version":"1.0.0","private":true,"type":"module","description":"Open Payroll OS (@openscaffold/payroll v1.0) — White-Label ADP, Gusto, Paychex & Rippling Replacement across all 17 Open Scaffold Labs verticals","scripts":{"test":"node --test tests/*.test.mjs","start":"node server.mjs"},"devDependencies":{"jsdom":"^26.1.0"},"engines":{"node":">=20"}}

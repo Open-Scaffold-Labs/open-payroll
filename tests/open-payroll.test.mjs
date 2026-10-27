@@ -8,11 +8,25 @@ import {
   executePayRunAndPostBooks,
   evaluateComplianceLab,
   trialBalance,
+  computeSplitDepositBreakdown,
+  provisionOpenPayrollWalletCard,
+  connectWorkerNeobankRouting,
+  updateWorkerSplitDeposit,
+  pushInstantShiftTips,
+  sendBilingualWhatsappPaystub,
   saveState,
   loadState
 } from '../js/engine.js';
-import {architectureLayers, payrollPresets, taxFilingsCatalog, sponsorBanks} from '../js/data.js';
-import {THEMES, applyTheme, listThemes} from '../js/theme.js';
+import {
+  architectureLayers,
+  payrollPresets,
+  taxFilingsCatalog,
+  sponsorBanks,
+  neobankRoutingCatalog,
+  remittanceCorridors,
+  openPayrollCardDisclosures
+} from '../js/data.js';
+import {THEMES, listThemes} from '../js/theme.js';
 
 test('1. architectureLayers defines all 5 layers of Open Payroll OS', () => {
   assert.equal(architectureLayers.length, 5);
@@ -121,4 +135,63 @@ test('11. saveState and loadState round-trip workspace state cleanly', () => {
   const loaded = loadState(storage);
   assert.equal(loaded.activePresetId, 'landscape');
   assert.equal(loaded.achBatches.length, 1);
+});
+
+test('12. neobankRoutingCatalog, remittanceCorridors, and openPayrollCardDisclosures cover bilingual Hispanic unbanked rails', () => {
+  assert.equal(neobankRoutingCatalog.length, 7);
+  const ids = neobankRoutingCatalog.map(a => a.id);
+  assert.deepEqual(ids, ['open_payroll_card', 'comun', 'seis', 'cashapp', 'chime', 'venmo', 'oportun']);
+  assert.equal(neobankRoutingCatalog.find(a => a.id === 'comun').routing, '026014928');
+  assert.equal(neobankRoutingCatalog.find(a => a.id === 'cashapp').routing, '041215663');
+  assert.equal(remittanceCorridors.length, 3);
+  assert.ok(remittanceCorridors[0].provider.includes('Félix Pago'));
+  assert.equal(openPayrollCardDisclosures.feeSchedule.length, 6);
+});
+
+test('13. provisionOpenPayrollWalletCard and connectWorkerNeobankRouting update worker ACH routing & Reg E consent', () => {
+  const state = createState('restaurant');
+  const connected = connectWorkerNeobankRouting(state, 'EMP-102', 'comun', '5519');
+  assert.equal(connected.emp.payoutMethod, 'comun');
+  assert.equal(connected.emp.routingNumber, '026014928');
+  assert.equal(connected.emp.accountLast4, '5519');
+
+  const cardEmp = provisionOpenPayrollWalletCard(state, 'EMP-102');
+  assert.equal(cardEmp.payoutMethod, 'open_payroll_card');
+  assert.equal(cardEmp.routingNumber, '121145433');
+  assert.equal(cardEmp.walletCardProvisioned, true);
+  assert.ok(cardEmp.regEConsentTimestamp);
+});
+
+test('14. computeSplitDepositBreakdown and updateWorkerSplitDeposit reconcile net pay to the penny', () => {
+  const state = createState('restaurant');
+  const emp = updateWorkerSplitDeposit(state, 'EMP-102', 65, 25, 10);
+  assert.equal(emp.splitSpendPct, 65);
+  assert.equal(emp.splitRemitPct, 25);
+  assert.equal(emp.splitSavePct, 10);
+
+  const split = computeSplitDepositBreakdown(1843.67, emp);
+  assert.equal(Math.round((split.spendAmount + split.remitAmount + split.saveAmount) * 100) / 100, 1843.67);
+  assert.ok(split.checkCasherFeeSaved > 40);
+  assert.equal(split.wireFeeSaved, 15.00);
+});
+
+test('15. pushInstantShiftTips settles <5s shift tips, increments Form 8846 (§ 45B) credit, and posts $0.00-variance GL journal', () => {
+  const state = createState('restaurant');
+  const res = pushInstantShiftTips(state, 'EMP-103', 200.00, 'visa_direct_oct');
+  assert.equal(res.pushRecord.amount, 200.00);
+  assert.equal(res.pushRecord.ficaTipCredit45B, 15.30);
+  assert.equal(res.journal.variance, 0);
+  const tb = trialBalance(state);
+  assert.equal(tb.balanced, true);
+  assert.equal(tb.variance, 0);
+});
+
+test('16. sendBilingualWhatsappPaystub delivers CA Labor Code § 226(a) & § 246(i) itemized wage statement in Español or English', () => {
+  const state = createState('restaurant');
+  state.unbanked.lang = 'es';
+  const msg = sendBilingualWhatsappPaystub(state, 'EMP-102');
+  assert.equal(msg.id, 'WA-STUB-001');
+  assert.equal(msg.lang, 'es');
+  assert.ok(msg.channel.includes('Español'));
+  assert.equal(msg.sickHoursAvailable, 40.0);
 });

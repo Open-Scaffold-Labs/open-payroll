@@ -1,4 +1,13 @@
-import {clone, architectureLayers, payrollPresets, taxFilingsCatalog, sponsorBanks, verticalLaborRules} from './data.js';
+import {
+  clone,
+  architectureLayers,
+  payrollPresets,
+  taxFilingsCatalog,
+  sponsorBanks,
+  verticalLaborRules,
+  neobankRoutingCatalog,
+  remittanceCorridors
+} from './data.js';
 
 export const STATE_KEY = 'open_payroll.workspace.v1';
 export const money = (value, digits = 2) => new Intl.NumberFormat('en-US', {
@@ -16,8 +25,16 @@ export const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => 
   "'": '&#39;'
 }[c]));
 
+export function defaultUnbankedEmployeeId(employees = []) {
+  const esEmp = employees.find(e => e.lang === 'es');
+  return (esEmp || employees[0] || {id: 'EMP-102'}).id;
+}
+
 export function createState(presetId = 'restaurant') {
   const preset = payrollPresets.find(p => p.id === presetId) || payrollPresets[0];
+  const employees = clone(preset.employees);
+  const selectedEmployeeId = defaultUnbankedEmployeeId(employees);
+  const selectedEmp = employees.find(e => e.id === selectedEmployeeId) || employees[0];
   return {
     version: 1,
     activePresetId: preset.id,
@@ -37,7 +54,18 @@ export function createState(presetId = 'restaurant') {
       checkDate: '2026-10-30',
       sponsorBankId: 'column',
       rail: 'nacha_ppd',
-      employees: clone(preset.employees)
+      employees
+    },
+    unbanked: {
+      lang: 'es',
+      selectedEmployeeId,
+      selectedAppId: selectedEmp?.payoutMethod || 'open_payroll_card',
+      accountLast4Input: selectedEmp?.accountLast4 || '9042',
+      instantTipAmount: 184.50,
+      instantTipRail: 'visa_direct_oct',
+      remittanceCorridorId: remittanceCorridors[0].id,
+      tipPushes: [],
+      whatsappStubs: []
     },
     achBatches: [],
     taxFilings: clone(taxFilingsCatalog),
@@ -94,6 +122,34 @@ export function calculatePayrollSavings(calc) {
   };
 }
 
+export function computeSplitDepositBreakdown(netPay, emp = {}) {
+  const totalNet = Math.max(0, Number(netPay) || 0);
+  const spendPct = Math.max(0, Math.min(100, Number(emp.splitSpendPct ?? 100)));
+  const remitPct = Math.max(0, Math.min(100 - spendPct, Number(emp.splitRemitPct ?? 0)));
+  const savePct = Math.max(0, 100 - spendPct - remitPct);
+
+  const spendAmount = Math.round(totalNet * (spendPct / 100) * 100) / 100;
+  const remitAmount = Math.round(totalNet * (remitPct / 100) * 100) / 100;
+  const saveAmount = Math.round((totalNet - spendAmount - remitAmount) * 100) / 100;
+
+  // Predatory check-cashing fee avoided (2.5% average Casa de Cambio fee on net check)
+  const checkCasherFeeSaved = Math.round(totalNet * 0.025 * 100) / 100;
+  // Cash storefront remittance wire fee avoided ($15 flat average when remittance bucket is active)
+  const wireFeeSaved = remitAmount > 0 ? 15.00 : 0;
+
+  return {
+    spendPct,
+    remitPct,
+    savePct,
+    spendAmount,
+    remitAmount,
+    saveAmount,
+    checkCasherFeeSaved,
+    wireFeeSaved,
+    totalWorkerFeesSavedPerPaycheck: Math.round((checkCasherFeeSaved + wireFeeSaved) * 100) / 100
+  };
+}
+
 export function computeEmployeePaystub(emp, preset) {
   const is1099 = emp.type === '1099-NEC';
   const isClergy = emp.type.includes('107');
@@ -106,9 +162,13 @@ export function computeEmployeePaystub(emp, preset) {
   const tips = Number(emp.tips) || 0;
   const grossPay = Math.round((regularPay + overtimePay + mealPenaltyPay + tips) * 100) / 100;
 
+  const appInfo = neobankRoutingCatalog.find(a => a.id === (emp.payoutMethod || 'open_payroll_card')) || neobankRoutingCatalog[0];
+
   if (is1099) {
+    const split = computeSplitDepositBreakdown(grossPay, emp);
     return {
       ...emp,
+      payoutAppName: appInfo.name,
       regularPay,
       overtimePay: 0,
       mealPenaltyPay: 0,
@@ -130,7 +190,8 @@ export function computeEmployeePaystub(emp, preset) {
       erWorkersComp: 0,
       erFicaTipCredit: 0,
       totalEmployerTaxes: 0,
-      totalBurdenedCost: grossPay
+      totalBurdenedCost: grossPay,
+      split
     };
   }
 
@@ -155,9 +216,11 @@ export function computeEmployeePaystub(emp, preset) {
 
   const totalEmployerTaxes = Math.round((erSocialSecurity + erMedicare + erFuta + erSui + erWorkersComp) * 100) / 100;
   const totalBurdenedCost = Math.round((grossPay + totalEmployerTaxes) * 100) / 100;
+  const split = computeSplitDepositBreakdown(netPay, emp);
 
   return {
     ...emp,
+    payoutAppName: appInfo.name,
     regularPay,
     overtimePay,
     mealPenaltyPay,
@@ -179,7 +242,8 @@ export function computeEmployeePaystub(emp, preset) {
     erWorkersComp,
     erFicaTipCredit,
     totalEmployerTaxes,
-    totalBurdenedCost
+    totalBurdenedCost,
+    split
   };
 }
 
@@ -202,6 +266,7 @@ export function computePayRunSummary(state) {
     acc.totalBurdenedCost += s.totalBurdenedCost;
     acc.eftpsDeposit += (s.eeSocialSecurity + s.eeMedicare + s.fedIncomeTax + s.erSocialSecurity + s.erMedicare + s.erFuta);
     acc.stateTaxDeposit += (s.stateIncomeTax + s.stateSdi + s.erSui);
+    acc.workerFeesSaved += (s.split?.totalWorkerFeesSavedPerPaycheck || 0);
     return acc;
   }, {
     grossPay: 0,
@@ -215,7 +280,8 @@ export function computePayRunSummary(state) {
     erFicaTipCredit: 0,
     totalBurdenedCost: 0,
     eftpsDeposit: 0,
-    stateTaxDeposit: 0
+    stateTaxDeposit: 0,
+    workerFeesSaved: 0
   });
 
   Object.keys(totals).forEach(k => {
@@ -231,6 +297,154 @@ export function computePayRunSummary(state) {
     totals,
     railFeeTotal
   };
+}
+
+export function provisionOpenPayrollWalletCard(state, employeeId, now = new Date()) {
+  const emp = state.payRun.employees.find(e => e.id === employeeId) || state.payRun.employees[0];
+  if (!emp) return null;
+  emp.payoutMethod = 'open_payroll_card';
+  emp.routingNumber = '121145433';
+  if (!emp.accountLast4) emp.accountLast4 = '9042';
+  emp.walletCardProvisioned = true;
+  emp.regEConsentTimestamp = now.toISOString();
+  state.unbanked.selectedEmployeeId = emp.id;
+  state.unbanked.selectedAppId = 'open_payroll_card';
+  state.unbanked.accountLast4Input = emp.accountLast4;
+
+  audit(
+    state,
+    `Provisioned Open Payroll Visa Wallet Card (Column N.A. FBO ABA 121145433 · •••• ${emp.accountLast4}) + Apple/Google Wallet token for ${emp.name} with CA § 213(d) & CFPB Reg E consent`,
+    now
+  );
+  return emp;
+}
+
+export function connectWorkerNeobankRouting(state, employeeId, appId, accountLast4 = '4829', now = new Date()) {
+  const emp = state.payRun.employees.find(e => e.id === employeeId) || state.payRun.employees[0];
+  const app = neobankRoutingCatalog.find(a => a.id === appId) || neobankRoutingCatalog[0];
+  if (!emp) return null;
+
+  const cleanLast4 = String(accountLast4 || '4829').replace(/\D/g, '').slice(-4).padStart(4, '0');
+  emp.payoutMethod = app.id;
+  emp.routingNumber = app.routing;
+  emp.accountLast4 = cleanLast4;
+
+  state.unbanked.selectedEmployeeId = emp.id;
+  state.unbanked.selectedAppId = app.id;
+  state.unbanked.accountLast4Input = cleanLast4;
+
+  audit(
+    state,
+    `Connected ${app.name} direct deposit (ABA ${app.routing} · Acct •••• ${cleanLast4}) for ${emp.name}`,
+    now
+  );
+  return {emp, app};
+}
+
+export function updateWorkerSplitDeposit(state, employeeId, spendPct, remitPct, savePct, now = new Date()) {
+  const emp = state.payRun.employees.find(e => e.id === employeeId) || state.payRun.employees[0];
+  if (!emp) return null;
+  const s = Math.max(0, Math.min(100, Math.round(Number(spendPct) || 0)));
+  const r = Math.max(0, Math.min(100 - s, Math.round(Number(remitPct) || 0)));
+  const v = Math.max(0, 100 - s - r);
+
+  emp.splitSpendPct = s;
+  emp.splitRemitPct = r;
+  emp.splitSavePct = v;
+
+  audit(
+    state,
+    `Updated Split Direct Deposit (Dividir Mi Pago) for ${emp.name}: ${s}% Daily Spend / ${r}% Family Remittance / ${v}% Emergency Savings`,
+    now
+  );
+  return emp;
+}
+
+export function pushInstantShiftTips(state, employeeId, amount, rail = 'visa_direct_oct', now = new Date()) {
+  const emp = state.payRun.employees.find(e => e.id === employeeId) || state.payRun.employees[0];
+  const preset = payrollPresets.find(p => p.id === state.activePresetId) || payrollPresets[0];
+  if (!emp) return null;
+
+  const cleanAmount = Math.round(Math.max(1, Number(amount) || 0) * 100) / 100;
+  emp.tips = Math.round(((Number(emp.tips) || 0) + cleanAmount) * 100) / 100;
+
+  const app = neobankRoutingCatalog.find(a => a.id === (emp.payoutMethod || 'open_payroll_card')) || neobankRoutingCatalog[0];
+  const ficaCreditIncrement = Math.round(cleanAmount * 0.0765 * 100) / 100;
+  const railLabel = rail === 'fednow_instant'
+    ? 'FedNow Instant Credit ($0.045/tx · <5s)'
+    : 'Visa Direct / Mastercard Send OCT (<5s Apple/Google Wallet Push)';
+
+  const pushId = `TIP-${preset.id.toUpperCase()}-${String(state.unbanked.tipPushes.length + 1).padStart(3, '0')}`;
+  const pushRecord = {
+    id: pushId,
+    employeeId: emp.id,
+    employeeName: emp.name,
+    role: emp.role,
+    destination: `${app.name} (•••• ${emp.accountLast4 || '9042'})`,
+    rail: railLabel,
+    amount: cleanAmount,
+    ficaTipCredit45B: ficaCreditIncrement,
+    settlementSeconds: 3.2,
+    status: 'Settled in Wallet (<5s) · W-2 Box 7 Logged',
+    createdAt: now.toISOString()
+  };
+
+  state.unbanked.tipPushes.unshift(pushRecord);
+
+  // Post balanced $0.00-variance tip clearing journal to @openscaffold/books v3.3
+  const lines = [
+    {account: '2160 Customer Credit-Card Tips Payable (CA § 351 Pool)', debit: cleanAmount, credit: 0},
+    {account: '1015 Sponsor Bank Instant Tip Clearing (Visa Direct / FedNow)', debit: 0, credit: cleanAmount}
+  ];
+  const journal = {
+    id: `JE-${pushId}`,
+    batchId: pushId,
+    vertical: preset.vertical,
+    employer: preset.employer,
+    date: state.payRun.checkDate,
+    lines,
+    totalDebits: cleanAmount,
+    totalCredits: cleanAmount,
+    variance: 0
+  };
+  state.journals.unshift(journal);
+
+  audit(
+    state,
+    `Pushed ${money(cleanAmount)} instant end-of-shift tips to ${emp.name} via ${railLabel} (+${money(ficaCreditIncrement)} Form 8846 § 45B credit) & posted ${journal.id}`,
+    now
+  );
+
+  return {pushRecord, journal};
+}
+
+export function sendBilingualWhatsappPaystub(state, employeeId, now = new Date()) {
+  const summary = computePayRunSummary(state);
+  const stub = summary.stubs.find(s => s.id === employeeId) || summary.stubs[0];
+  if (!stub) return null;
+
+  const lang = state.unbanked?.lang || stub.lang || 'es';
+  const msgId = `WA-STUB-${String(state.unbanked.whatsappStubs.length + 1).padStart(3, '0')}`;
+  const delivery = {
+    id: msgId,
+    employeeId: stub.id,
+    employeeName: stub.name,
+    lang,
+    netPay: stub.netPay,
+    grossPay: stub.grossPay,
+    sickHoursAvailable: stub.sickHoursAvailable ?? 40.0,
+    complianceStatute: 'CA Labor Code § 226(a) (9 Itemized Elements) & § 246(i) Paid Sick Leave',
+    channel: lang === 'es' ? 'WhatsApp + SMS en Español' : 'WhatsApp + SMS in English',
+    deliveredAt: now.toISOString()
+  };
+
+  state.unbanked.whatsappStubs.unshift(delivery);
+  audit(
+    state,
+    `Delivered ${delivery.channel} itemized wage statement (${msgId} · Net ${money(stub.netPay)}) to ${stub.name} under CA Labor Code § 226(a)`,
+    now
+  );
+  return delivery;
 }
 
 export function executePayRunAndPostBooks(state, now = new Date()) {
@@ -353,7 +567,15 @@ export function loadState(storage) {
     if (!raw) return createState();
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return createState();
-    return {...createState(parsed.activePresetId), ...parsed};
+    const base = createState(parsed.activePresetId);
+    return {
+      ...base,
+      ...parsed,
+      unbanked: {
+        ...base.unbanked,
+        ...(parsed.unbanked || {})
+      }
+    };
   } catch {
     return createState();
   }

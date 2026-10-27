@@ -126,7 +126,7 @@ function renderCockpit() {
     ${pageTop(
       'PAYROLL & TAX OPERATIONS OVERVIEW',
       `${summary.preset.employer} — Pay Period Ending ${state.payRun.periodEnding}`,
-      `Review upcoming payroll totals, employee net direct deposits, federal EFTPS and state tax liabilities, and active W-2 / 1099 roster before originating the pay run.`,
+      `100% checkless digital payroll: zero paper paychecks, 60-second QR phone onboarding, instant Apple/Google Wallet virtual cards for unbanked staff, and zero-float FedNow / Same-Day ACH settlement.`,
       button('Approve & Run Payroll Now', 'run-payroll-now', 'primary')
     )}
     <div class="kpi-grid">
@@ -136,7 +136,7 @@ function renderCockpit() {
         <p>${summary.stubs.length} active payees (${summary.preset.w2Count} W-2 · ${summary.preset.contractorCount} 1099)</p>
       </article>
       <article class="kpi-card">
-        <span class="eyebrow">NET DIRECT DEPOSIT PAYOUT</span>
+        <span class="eyebrow">100% CHECKLESS DIGITAL PAYOUT</span>
         <strong class="kpi-value">${money(summary.totals.netPay)}</strong>
         <p>Check date: ${e(state.payRun.checkDate)} · ${e(summary.bank.name)}</p>
       </article>
@@ -291,9 +291,9 @@ function renderDirectDeposit() {
   const summary = computePayRunSummary(state);
   return `
     ${pageTop(
-      'DIRECT DEPOSIT & NACHA / FEDNOW BATCHES',
-      'Direct Bank-to-Bank Payroll Origination & Settlement',
-      'Configure your originating depository bank, select Same-Day NACHA PPD/CCD or instant FedNow payout rails, and review settled payroll batches.',
+      '100% CHECKLESS DIGITAL PAYROLL · ZERO PAPER CHECKS · ZERO FLOAT',
+      'Instant FedNow / Same-Day ACH Bank Push, QR Mobile Onboarding & Digital Wallet Cards',
+      'Every employee and 1099 contractor is onboarded digitally in 60 seconds via QR code (linking their bank, debit card, or an instant Open Payroll Apple/Google Wallet virtual card)—eliminating paper checks, MICR check stock, and 4-day payroll bureau float.',
       button('Originate NACHA / FedNow Batch Now', 'run-payroll-now', 'primary')
     )}
     <div class="grid-2">

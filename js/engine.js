@@ -6,7 +6,10 @@ import {
   sponsorBanks,
   verticalLaborRules,
   neobankRoutingCatalog,
-  remittanceCorridors
+  remittanceCorridors,
+  memberBankBranches,
+  retailBarcodeMerchants,
+  freeAtmDirectory
 } from './data.js';
 
 export const STATE_KEY = 'open_payroll.workspace.v1';
@@ -64,8 +67,17 @@ export function createState(presetId = 'restaurant') {
       instantTipAmount: 184.50,
       instantTipRail: 'visa_direct_oct',
       remittanceCorridorId: remittanceCorridors[0].id,
+      cashOutPath: 'path_a_teller',
+      tellerBankId: 'chase',
+      tellerAmountMode: 'exact_net',
+      tellerCustomAmount: 1143.62,
+      barcodeMerchantId: 'walmart',
+      barcodeAmountChoice: '500',
+      barcodeFeeMode: 'employer_sponsored',
+      atmZipQuery: '94596',
       tipPushes: [],
-      whatsappStubs: []
+      whatsappStubs: [],
+      cashOutTransactions: []
     },
     achBatches: [],
     taxFilings: clone(taxFilingsCatalog),
@@ -132,9 +144,7 @@ export function computeSplitDepositBreakdown(netPay, emp = {}) {
   const remitAmount = Math.round(totalNet * (remitPct / 100) * 100) / 100;
   const saveAmount = Math.round((totalNet - spendAmount - remitAmount) * 100) / 100;
 
-  // Predatory check-cashing fee avoided (2.5% average Casa de Cambio fee on net check)
   const checkCasherFeeSaved = Math.round(totalNet * 0.025 * 100) / 100;
-  // Cash storefront remittance wire fee avoided ($15 flat average when remittance bucket is active)
   const wireFeeSaved = remitAmount > 0 ? 15.00 : 0;
 
   return {
@@ -391,7 +401,6 @@ export function pushInstantShiftTips(state, employeeId, amount, rail = 'visa_dir
 
   state.unbanked.tipPushes.unshift(pushRecord);
 
-  // Post balanced $0.00-variance tip clearing journal to @openscaffold/books v3.3
   const lines = [
     {account: '2160 Customer Credit-Card Tips Payable (CA § 351 Pool)', debit: cleanAmount, credit: 0},
     {account: '1015 Sponsor Bank Instant Tip Clearing (Visa Direct / FedNow)', debit: 0, credit: cleanAmount}
@@ -445,6 +454,153 @@ export function sendBilingualWhatsappPaystub(state, employeeId, now = new Date()
     now
   );
   return delivery;
+}
+
+export function findFreeAtmsByZip(zipQuery = '94596') {
+  const q = String(zipQuery || '').trim().toLowerCase();
+  if (!q) return freeAtmDirectory;
+  const matches = freeAtmDirectory.filter(
+    atm => atm.zip.toLowerCase().includes(q) || atm.neighborhood.toLowerCase().includes(q) || atm.venue.toLowerCase().includes(q)
+  );
+  return matches.length > 0 ? matches : freeAtmDirectory;
+}
+
+export function generateWorkerCashOutPass(state, options = {}, now = new Date()) {
+  const summary = computePayRunSummary(state);
+  const employeeId = options.employeeId || state.unbanked?.selectedEmployeeId;
+  const stub = summary.stubs.find(s => s.id === employeeId) || summary.stubs[0];
+  const path = options.path || state.unbanked?.cashOutPath || 'path_a_teller';
+  const seq = (state.unbanked?.cashOutTransactions?.length || 0) + 1;
+
+  if (path === 'path_a_teller' || path === 'PATH_A_OTC_BANK_TELLER') {
+    const bankId = options.tellerBankId || state.unbanked?.tellerBankId || 'chase';
+    const bank = memberBankBranches.find(b => b.id === bankId) || memberBankBranches[0];
+    const mode = options.tellerAmountMode || state.unbanked?.tellerAmountMode || 'exact_net';
+    const exactAmount = mode === 'custom_penny'
+      ? Math.round(Math.max(1, Number(options.amount ?? state.unbanked?.tellerCustomAmount ?? 1143.62)) * 100) / 100
+      : stub.netPay;
+
+    const exactAmountCents = Math.round(exactAmount * 100);
+    const casaDeCambioFeeSaved = Math.round(exactAmount * 0.03 * 100) / 100;
+    const token = `OTC-VISA-${String(481200 + seq * 19)}-${stub.accountLast4 || '9042'}`;
+
+    const tellerScriptEn = `Hello Teller: Please process a $0-fee Visa Over-the-Counter (OTC) Manual Cash Disbursement for the exact amount of ${money(exactAmount)} from this Open Payroll Visa Debit Card (ending in ${stub.accountLast4 || '9042'}). Per Visa Core Rules § 5.4.2.4 and California Labor Code § 212(a)(1), no bank account at this branch is required.`;
+    const workerGuideEs = `Muestra esta pantalla al cajero de ${bank.name} junto con tu identificación (Matrícula Consular, Pasaporte o ID) y tu tarjeta Open Payroll (•••• ${stub.accountLast4 || '9042'}). El cajero te entregará exactamente ${money(exactAmount)} en efectivo hasta el último centavo con $0.00 de comisión.`;
+
+    const record = {
+      cash_out_id: `CSH-OTC-${String(seq).padStart(3, '0')}`,
+      worker_id: stub.id,
+      worker_name: stub.name,
+      paycard_last4: stub.accountLast4 || '9042',
+      cash_out_path: 'PATH_A_OTC_BANK_TELLER',
+      merchant_or_bank_name: bank.name,
+      exact_amount: exactAmount,
+      exact_amount_cents: exactAmountCents,
+      worker_fee: 0.00,
+      worker_fee_cents: 0,
+      casa_de_cambio_fee_saved: casaDeCambioFeeSaved,
+      casa_de_cambio_fee_saved_cents: Math.round(casaDeCambioFeeSaved * 100),
+      reference_or_barcode_token: token,
+      statutory_basis: 'CA Labor Code § 212(a)(1) & Visa Core Rules § 5.4.2.4',
+      teller_script_en: tellerScriptEn,
+      worker_guide_es: workerGuideEs,
+      status: 'AUTHORIZED_READY',
+      created_at: now.toISOString()
+    };
+
+    if (state.unbanked) {
+      state.unbanked.cashOutTransactions.unshift(record);
+    }
+    audit(
+      state,
+      `Generated Path A Exact-Penny Bank Teller Cash Pass (${record.cash_out_id} · ${money(exactAmount)} · $0.00 fee at ${bank.name}) for ${stub.name}`,
+      now
+    );
+    return record;
+  }
+
+  if (path === 'path_b_barcode' || path === 'PATH_B_RETAIL_BARCODE') {
+    const merchantId = options.barcodeMerchantId || state.unbanked?.barcodeMerchantId || 'walmart';
+    const merchant = retailBarcodeMerchants.find(m => m.id === merchantId) || retailBarcodeMerchants[0];
+    const choice = String(options.barcodeAmountChoice ?? state.unbanked?.barcodeAmountChoice ?? '500');
+    const rawAmount = choice === 'full'
+      ? Math.min(stub.netPay, merchant.maxPerTx)
+      : Math.min(Number(choice) || 200, stub.netPay, merchant.maxPerTx);
+    const exactAmount = Math.round(Math.max(20, rawAmount) * 100) / 100;
+    const feeMode = options.barcodeFeeMode || state.unbanked?.barcodeFeeMode || 'employer_sponsored';
+    const workerFee = feeMode === 'network_passthrough' ? merchant.networkPassThroughFee : 0.00;
+    const casaDeCambioFeeSaved = Math.round(Math.max(0, exactAmount * 0.035 - workerFee) * 100) / 100;
+    const barcodeDigits = `7942 ${String(8810 + seq * 7).slice(0, 4)} ${String(4390 + seq * 13).slice(0, 4)} ${stub.accountLast4 || '9042'}`;
+
+    const record = {
+      cash_out_id: `CSH-BAR-${String(seq).padStart(3, '0')}`,
+      worker_id: stub.id,
+      worker_name: stub.name,
+      paycard_last4: stub.accountLast4 || '9042',
+      cash_out_path: 'PATH_B_RETAIL_BARCODE',
+      merchant_or_bank_name: `${merchant.name} (${merchant.network})`,
+      exact_amount: exactAmount,
+      exact_amount_cents: Math.round(exactAmount * 100),
+      worker_fee: workerFee,
+      worker_fee_cents: Math.round(workerFee * 100),
+      casa_de_cambio_fee_saved: casaDeCambioFeeSaved,
+      casa_de_cambio_fee_saved_cents: Math.round(casaDeCambioFeeSaved * 100),
+      reference_or_barcode_token: barcodeDigits,
+      statutory_basis: 'CA Labor Code § 212(a)(1) · VanillaDirect / GreenDot Register Barcode',
+      teller_script_en: merchant.instructionsEn,
+      worker_guide_es: merchant.instructionsEs,
+      status: 'BARCODE_ACTIVE_30MIN',
+      created_at: now.toISOString()
+    };
+
+    if (state.unbanked) {
+      state.unbanked.cashOutTransactions.unshift(record);
+    }
+    audit(
+      state,
+      `Generated Path B Retail Register Barcode (${record.cash_out_id} · ${barcodeDigits} · ${money(exactAmount)} at ${merchant.name} · Fee ${money(workerFee)}) for ${stub.name}`,
+      now
+    );
+    return record;
+  }
+
+  const zipQuery = options.atmZipQuery || state.unbanked?.atmZipQuery || '94596';
+  const atms = findFreeAtmsByZip(zipQuery);
+  const atm = atms[0] || freeAtmDirectory[0];
+  const exactAmount = Math.min(800, Math.floor(stub.netPay / 20) * 20 || 400);
+  const casaDeCambioFeeSaved = Math.round(exactAmount * 0.03 * 100) / 100;
+  const token = `NFC-ATM-${atm.zip}-${String(1000 + seq * 23)}`;
+
+  const record = {
+    cash_out_id: `CSH-ATM-${String(seq).padStart(3, '0')}`,
+    worker_id: stub.id,
+    worker_name: stub.name,
+    paycard_last4: stub.accountLast4 || '9042',
+    cash_out_path: 'PATH_C_ALLPOINT_NFC_ATM',
+    merchant_or_bank_name: `${atm.venue} (${atm.address})`,
+    exact_amount: exactAmount,
+    exact_amount_cents: Math.round(exactAmount * 100),
+    worker_fee: 0.00,
+    worker_fee_cents: 0,
+    casa_de_cambio_fee_saved: casaDeCambioFeeSaved,
+    casa_de_cambio_fee_saved_cents: Math.round(casaDeCambioFeeSaved * 100),
+    reference_or_barcode_token: token,
+    statutory_basis: 'CFPB Reg E (12 CFR § 1005.18) · 55,000+ Free Allpoint / MoneyPass NFC ATMs',
+    teller_script_en: `Tap Apple Pay / Google Wallet at ${atm.venue} (${atm.address}) for $0.00-fee cash withdrawal up to $${atm.dailyLimit}/day.`,
+    worker_guide_es: `Acerca tu celular con Apple Pay / Google Wallet al lector sin contacto del cajero ${atm.venue} (${atm.address}) para retirar hasta $${atm.dailyLimit}/día con $0.00 de comisión.`,
+    status: 'NFC_READY_0_FEE',
+    created_at: now.toISOString()
+  };
+
+  if (state.unbanked) {
+    state.unbanked.cashOutTransactions.unshift(record);
+  }
+  audit(
+    state,
+    `Generated Path C Free Allpoint/MoneyPass NFC ATM Pass (${record.cash_out_id} · ${money(exactAmount)} at ${atm.venue} · $0.00 fee) for ${stub.name}`,
+    now
+  );
+  return record;
 }
 
 export function executePayRunAndPostBooks(state, now = new Date()) {
@@ -513,12 +669,10 @@ export function evaluateComplianceLab(state) {
   const diff = Number(c.shiftDifferential) || 0;
   const regularRateOfPay = Math.round((baseRate + diff) * 100) / 100;
 
-  // Under CA Labor Code 226.7 & Brinker, first meal period must begin before end of 5th hour (minute 300) if shift > 5 hours
   const violation = shiftHours > 5 && breakMinute >= 300;
-  const alertMinute = 255; // 4h 15m proactive alert
+  const alertMinute = 255;
   const penaltyOwed = violation ? regularRateOfPay : 0;
 
-  // IRS Form 8846 (IRC 45B) FICA Tip Credit calculation
   const tippedHours = Number(c.tippedHoursWorked) || 0;
   const reportedTips = Number(c.reportedTips) || 0;
   const cashWage = Number(c.hourlyCashWagePaid) || 0;

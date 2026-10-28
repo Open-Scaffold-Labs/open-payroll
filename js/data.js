@@ -215,6 +215,219 @@ export const neobankRoutingCatalog = [
   }
 ];
 
+export const memberBankBranches = [
+  {id: 'chase', name: 'Chase Bank (Any Visa Member Branch)', rule: 'Visa Core Rules § 5.4.2.4 · OTC Manual Cash Disbursement ($0.00 Fee)'},
+  {id: 'bofa', name: 'Bank of America (Any Visa Member Branch)', rule: 'Visa Core Rules § 5.4.2.4 · OTC Manual Cash Disbursement ($0.00 Fee)'},
+  {id: 'wellsfargo', name: 'Wells Fargo Bank (Any Visa Member Branch)', rule: 'Visa Core Rules § 5.4.2.4 · OTC Manual Cash Disbursement ($0.00 Fee)'},
+  {id: 'usbank', name: 'U.S. Bank (Any Visa Member Branch)', rule: 'Visa Core Rules § 5.4.2.4 · OTC Manual Cash Disbursement ($0.00 Fee)'},
+  {id: 'citi', name: 'Citibank (Any Visa Member Branch)', rule: 'Visa Core Rules § 5.4.2.4 · OTC Manual Cash Disbursement ($0.00 Fee)'}
+];
+
+export const retailBarcodeMerchants = [
+  {
+    id: 'walmart',
+    name: 'Walmart Service Desk / Register',
+    network: 'VanillaDirect / GreenDot @ The Register',
+    maxPerTx: 950,
+    employerSponsoredFee: 0.00,
+    networkPassThroughFee: 1.00,
+    instructionsEs: 'Muestra este código de barras en cualquier caja registradora o MoneyCenter de Walmart y pide "Cash Out con Código de Barras VanillaDirect / GreenDot".',
+    instructionsEn: 'Present this barcode at any Walmart register or MoneyCenter desk and request a "VanillaDirect / GreenDot Barcode Cash-Out".'
+  },
+  {
+    id: '7eleven',
+    name: '7-Eleven Register',
+    network: 'VanillaDirect / GreenDot @ The Register',
+    maxPerTx: 500,
+    employerSponsoredFee: 0.00,
+    networkPassThroughFee: 1.00,
+    instructionsEs: 'Escanea el código de barras en la caja de 7-Eleven para recibir tu efectivo al instante (24/7).',
+    instructionsEn: 'Scan the barcode at any 7-Eleven register for instant 24/7 cash pickup.'
+  },
+  {
+    id: 'cvs',
+    name: 'CVS Pharmacy Register',
+    network: 'VanillaDirect Cash-Out',
+    maxPerTx: 500,
+    employerSponsoredFee: 0.00,
+    networkPassThroughFee: 1.00,
+    instructionsEs: 'Pasa por cualquier caja de CVS Pharmacy, muestra el código de barras en tu celular y recibe el efectivo.',
+    instructionsEn: 'Show this phone barcode at any CVS Pharmacy checkout register to collect your cash.'
+  },
+  {
+    id: 'walgreens',
+    name: 'Walgreens Register',
+    network: 'VanillaDirect / GreenDot Cash-Out',
+    maxPerTx: 500,
+    employerSponsoredFee: 0.00,
+    networkPassThroughFee: 1.00,
+    instructionsEs: 'Muestra el código de barras al cajero de Walgreens para retirar efectivo sin cuenta bancaria.',
+    instructionsEn: 'Present this barcode to the Walgreens cashier for instant register cash pickup.'
+  },
+  {
+    id: 'cardenas',
+    name: 'FoodMaxx / Cardenas Markets / Vallarta Supermarkets',
+    network: 'GreenDot / InComm Register Network',
+    maxPerTx: 950,
+    employerSponsoredFee: 0.00,
+    networkPassThroughFee: 1.00,
+    instructionsEs: 'Muestra este código en Servicio al Cliente o caja de Cardenas Markets / FoodMaxx / Vallarta para retirar efectivo mientras haces tu mandado.',
+    instructionsEn: 'Show this barcode at Customer Service or checkout at Cardenas Markets / FoodMaxx / Vallarta to pick up cash while grocery shopping.'
+  }
+];
+
+export const freeAtmDirectory = [
+  {
+    id: 'atm-target-94596',
+    zip: '94596',
+    neighborhood: 'Walnut Creek / Downtown (Near Va de Vi)',
+    venue: 'Target Store #1428 — Allpoint NFC ATM',
+    address: '1871 N Main St, Walnut Creek, CA 94596',
+    network: 'Allpoint (55,000+ Free ATMs)',
+    distance: '0.4 mi',
+    dailyLimit: 800,
+    fee: 0.00,
+    nfcCardless: true,
+    hours: '7:00 AM – 10:00 PM'
+  },
+  {
+    id: 'atm-cvs-94596',
+    zip: '94596',
+    neighborhood: 'Walnut Creek / Broadway Plaza',
+    venue: 'CVS Pharmacy #9214 — Allpoint 24hr NFC ATM',
+    address: '1123 S California Blvd, Walnut Creek, CA 94596',
+    network: 'Allpoint (55,000+ Free ATMs)',
+    distance: '0.3 mi',
+    dailyLimit: 800,
+    fee: 0.00,
+    nfcCardless: true,
+    hours: 'Open 24 Hours'
+  },
+  {
+    id: 'atm-7eleven-94520',
+    zip: '94520',
+    neighborhood: 'Concord / Monument Corridor',
+    venue: '7-Eleven #23819 — MoneyPass & Allpoint NFC ATM',
+    address: '1490 Monument Blvd, Concord, CA 94520',
+    network: 'MoneyPass / Allpoint',
+    distance: '0.2 mi',
+    dailyLimit: 800,
+    fee: 0.00,
+    nfcCardless: true,
+    hours: 'Open 24 Hours'
+  },
+  {
+    id: 'atm-walgreens-94520',
+    zip: '94520',
+    neighborhood: 'Concord / Willow Pass',
+    venue: 'Walgreens #04192 — Allpoint NFC ATM',
+    address: '1800 Concord Ave, Concord, CA 94520',
+    network: 'Allpoint (55,000+ Free ATMs)',
+    distance: '0.5 mi',
+    dailyLimit: 800,
+    fee: 0.00,
+    nfcCardless: true,
+    hours: 'Open 24 Hours'
+  },
+  {
+    id: 'atm-safeway-94601',
+    zip: '94601',
+    neighborhood: 'Oakland / Fruitvale Village',
+    venue: 'Safeway / Walgreens Fruitvale — Allpoint NFC ATM',
+    address: '3250 Foothill Blvd, Oakland, CA 94601',
+    network: 'Allpoint (55,000+ Free ATMs)',
+    distance: '0.2 mi',
+    dailyLimit: 800,
+    fee: 0.00,
+    nfcCardless: true,
+    hours: '6:00 AM – 12:00 AM'
+  },
+  {
+    id: 'atm-circlek-75001',
+    zip: '75001',
+    neighborhood: 'Dallas / Addison TX',
+    venue: 'Circle K & CVS — Allpoint / MoneyPass NFC ATM',
+    address: '5010 Belt Line Rd, Dallas, TX 75001',
+    network: 'Allpoint / MoneyPass',
+    distance: '0.4 mi',
+    dailyLimit: 800,
+    fee: 0.00,
+    nfcCardless: true,
+    hours: 'Open 24 Hours'
+  }
+];
+
+export const unbankedRelationalSchema = [
+  {
+    table: 'WORKERS',
+    primaryKey: 'worker_id (UUID)',
+    columns: [
+      'worker_id UUID PRIMARY KEY',
+      'employer_id UUID NOT NULL REFERENCES EMPLOYERS(employer_id)',
+      'legal_name TEXT NOT NULL',
+      'preferred_language VARCHAR(5) NOT NULL DEFAULT \'es\' CHECK (preferred_language IN (\'es\', \'en\'))',
+      'tin_type VARCHAR(10) NOT NULL CHECK (tin_type IN (\'SSN\', \'ITIN\', \'EIN\'))',
+      'tin_last4 CHAR(4) NOT NULL',
+      'cip_id_type VARCHAR(40) NOT NULL -- US_STATE_ID, CA_AB60, MATRICULA_CONSULAR, FOREIGN_PASSPORT, EAD',
+      'cip_verified_at TIMESTAMPTZ NOT NULL',
+      'whatsapp_phone E164_PHONE NOT NULL',
+      'ca_sick_hours_available NUMERIC(6,2) NOT NULL DEFAULT 40.00'
+    ]
+  },
+  {
+    table: 'WORKER_PAYOUT_DESTINATIONS',
+    primaryKey: 'destination_id (UUID)',
+    columns: [
+      'destination_id UUID PRIMARY KEY',
+      'worker_id UUID NOT NULL REFERENCES WORKERS(worker_id)',
+      'bucket_type VARCHAR(20) NOT NULL CHECK (bucket_type IN (\'DAILY_SPEND\', \'FAMILY_REMITTANCE\', \'EMERGENCY_SAVINGS\'))',
+      'provider_id VARCHAR(32) NOT NULL -- open_payroll_card, comun, seis, cashapp, chime, venmo, oportun',
+      'odfi_routing_aba CHAR(9) NOT NULL',
+      'account_number_encrypted BYTEA NOT NULL',
+      'account_last4 CHAR(4) NOT NULL',
+      'split_percentage NUMERIC(5,2) NOT NULL CHECK (split_percentage BETWEEN 0 AND 100)',
+      'rege_consent_signed_at TIMESTAMPTZ NOT NULL',
+      'ca_lab_213d_voluntary_consent BOOLEAN NOT NULL DEFAULT TRUE'
+    ]
+  },
+  {
+    table: 'PAYCARD_ACCOUNTS',
+    primaryKey: 'paycard_id (UUID)',
+    columns: [
+      'paycard_id UUID PRIMARY KEY',
+      'worker_id UUID NOT NULL REFERENCES WORKERS(worker_id)',
+      'sponsor_bank VARCHAR(64) NOT NULL DEFAULT \'Column N.A. Member FDIC\'',
+      'fbo_routing_aba CHAR(9) NOT NULL DEFAULT \'121145433\'',
+      'fbo_account_last4 CHAR(4) NOT NULL',
+      'visa_pan_last4 CHAR(4) NOT NULL',
+      'apple_wallet_token_id VARCHAR(64)',
+      'google_wallet_token_id VARCHAR(64)',
+      'physical_card_status VARCHAR(24) NOT NULL DEFAULT \'MAILED_3DAY_EMV\'',
+      'available_balance_cents BIGINT NOT NULL DEFAULT 0',
+      'monthly_fee_cents INT NOT NULL DEFAULT 0 CHECK (monthly_fee_cents = 0)',
+      'otc_teller_fee_cents INT NOT NULL DEFAULT 0 CHECK (otc_teller_fee_cents = 0)'
+    ]
+  },
+  {
+    table: 'CASH_OUT_TRANSACTIONS',
+    primaryKey: 'cash_out_id (UUID)',
+    columns: [
+      'cash_out_id UUID PRIMARY KEY',
+      'worker_id UUID NOT NULL REFERENCES WORKERS(worker_id)',
+      'paycard_id UUID REFERENCES PAYCARD_ACCOUNTS(paycard_id)',
+      'cash_out_path VARCHAR(32) NOT NULL CHECK (cash_out_path IN (\'PATH_A_OTC_BANK_TELLER\', \'PATH_B_RETAIL_BARCODE\', \'PATH_C_ALLPOINT_NFC_ATM\'))',
+      'merchant_or_bank_name TEXT NOT NULL',
+      'exact_amount_cents BIGINT NOT NULL CHECK (exact_amount_cents > 0)',
+      'worker_fee_cents INT NOT NULL DEFAULT 0',
+      'casa_de_cambio_fee_saved_cents INT NOT NULL',
+      'reference_or_barcode_token VARCHAR(32) NOT NULL',
+      'statutory_basis TEXT NOT NULL DEFAULT \'CA Labor Code § 212(a)(1) & Visa Core Rules § 5.4.2.4\'',
+      'status VARCHAR(24) NOT NULL DEFAULT \'AUTHORIZED_READY\'',
+      'created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()'
+    ]
+  }
+];
+
 export const remittanceCorridors = [
   {
     id: 'felix-whatsapp',

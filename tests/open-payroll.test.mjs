@@ -14,6 +14,8 @@ import {
   updateWorkerSplitDeposit,
   pushInstantShiftTips,
   sendBilingualWhatsappPaystub,
+  findFreeAtmsByZip,
+  generateWorkerCashOutPass,
   saveState,
   loadState
 } from '../js/engine.js';
@@ -24,7 +26,11 @@ import {
   sponsorBanks,
   neobankRoutingCatalog,
   remittanceCorridors,
-  openPayrollCardDisclosures
+  openPayrollCardDisclosures,
+  memberBankBranches,
+  retailBarcodeMerchants,
+  freeAtmDirectory,
+  unbankedRelationalSchema
 } from '../js/data.js';
 import {THEMES, listThemes} from '../js/theme.js';
 
@@ -194,4 +200,77 @@ test('16. sendBilingualWhatsappPaystub delivers CA Labor Code § 226(a) & § 246
   assert.equal(msg.lang, 'es');
   assert.ok(msg.channel.includes('Español'));
   assert.equal(msg.sickHoursAvailable, 40.0);
+});
+
+test('17. Sacar Efectivo Gratis Path A generates $0-fee Exact-Penny Bank Teller OTC Cash Pass (Visa § 5.4.2.4 & CA § 212(a)(1))', () => {
+  const state = createState('restaurant');
+  const rec = generateWorkerCashOutPass(state, {
+    employeeId: 'EMP-102',
+    path: 'path_a_teller',
+    tellerBankId: 'chase',
+    tellerAmountMode: 'exact_net'
+  });
+  assert.equal(rec.cash_out_id, 'CSH-OTC-001');
+  assert.equal(rec.cash_out_path, 'PATH_A_OTC_BANK_TELLER');
+  assert.equal(rec.worker_fee, 0.00);
+  assert.equal(rec.worker_fee_cents, 0);
+  assert.ok(rec.exact_amount > 1000);
+  assert.ok(rec.casa_de_cambio_fee_saved > 30);
+  assert.ok(rec.teller_script_en.includes('Visa Core Rules § 5.4.2.4'));
+  assert.ok(rec.worker_guide_es.includes('Muestra esta pantalla al cajero'));
+  assert.equal(state.unbanked.cashOutTransactions.length, 1);
+});
+
+test('18. Sacar Efectivo Gratis Path B generates Retail Register Barcode Cash-Out ($0.00 sponsored or $1.00 flat pass-through)', () => {
+  const state = createState('restaurant');
+  const recFree = generateWorkerCashOutPass(state, {
+    employeeId: 'EMP-102',
+    path: 'path_b_barcode',
+    barcodeMerchantId: 'walmart',
+    barcodeAmountChoice: '500',
+    barcodeFeeMode: 'employer_sponsored'
+  });
+  assert.equal(recFree.cash_out_id, 'CSH-BAR-001');
+  assert.equal(recFree.cash_out_path, 'PATH_B_RETAIL_BARCODE');
+  assert.equal(recFree.exact_amount, 500);
+  assert.equal(recFree.worker_fee, 0.00);
+  assert.ok(recFree.reference_or_barcode_token.startsWith('7942 '));
+
+  const recPass = generateWorkerCashOutPass(state, {
+    employeeId: 'EMP-102',
+    path: 'path_b_barcode',
+    barcodeMerchantId: '7eleven',
+    barcodeAmountChoice: '200',
+    barcodeFeeMode: 'network_passthrough'
+  });
+  assert.equal(recPass.exact_amount, 200);
+  assert.equal(recPass.worker_fee, 1.00);
+  assert.equal(recPass.worker_fee_cents, 100);
+});
+
+test('19. Sacar Efectivo Gratis Path C finds 55,000+ Free Allpoint/MoneyPass NFC ATMs by ZIP and logs $0.00 pickup', () => {
+  const wcAtms = findFreeAtmsByZip('94596');
+  assert.equal(wcAtms.length, 2);
+  assert.ok(wcAtms[0].venue.includes('Target'));
+
+  const concordAtms = findFreeAtmsByZip('94520');
+  assert.equal(concordAtms.length, 2);
+
+  const state = createState('restaurant');
+  const recAtm = generateWorkerCashOutPass(state, {
+    employeeId: 'EMP-102',
+    path: 'path_c_atm',
+    atmZipQuery: '94596'
+  });
+  assert.equal(recAtm.cash_out_id, 'CSH-ATM-001');
+  assert.equal(recAtm.cash_out_path, 'PATH_C_ALLPOINT_NFC_ATM');
+  assert.equal(recAtm.worker_fee, 0.00);
+  assert.equal(unbankedRelationalSchema.length, 4);
+  assert.deepEqual(
+    unbankedRelationalSchema.map(t => t.table),
+    ['WORKERS', 'WORKER_PAYOUT_DESTINATIONS', 'PAYCARD_ACCOUNTS', 'CASH_OUT_TRANSACTIONS']
+  );
+  assert.equal(memberBankBranches.length, 5);
+  assert.equal(retailBarcodeMerchants.length, 5);
+  assert.equal(freeAtmDirectory.length, 6);
 });

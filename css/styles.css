@@ -130,3 +130,22 @@ footer span{margin:0 7px}
   .topbar{padding:12px 14px;flex-direction:column;align-items:flex-start}
   .workspace-select{max-width:100%;width:100%}
 }
+
+.cashout-path-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
+.cashout-path-btn{border:1px solid var(--os-border);border-radius:8px;padding:12px 14px;background:var(--os-surface);color:var(--os-ink);text-align:left;font-size:12.5px;transition:border-color .15s,background .15s}
+.cashout-path-btn.active{border:2px solid var(--os-accent);background:var(--os-surface-alt);font-weight:600}
+.cashout-path-btn small{display:block;font-size:11px;color:var(--os-ink-muted);margin-top:3px}
+
+.teller-pass-card{background:#FBF7EF;border:2px solid #2F4A34;border-radius:10px;padding:20px 22px;margin:14px 0;box-shadow:0 6px 18px rgba(31,43,34,0.1)}
+.teller-pass-header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--os-border);padding-bottom:12px;margin-bottom:14px;flex-wrap:wrap;gap:8px}
+.teller-pass-amount{font-family:'Newsreader',Georgia,serif;font-size:34px;font-weight:600;color:#2F4A34;line-height:1.1}
+.teller-script-box{background:#1F2B22;color:#F4EFE4;border-radius:8px;padding:14px 16px;margin:12px 0;border-left:4px solid #C9AB66;font-size:13.5px;line-height:1.55}
+.teller-script-box strong{color:#C9AB66;display:block;font-size:11px;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:4px}
+
+.barcode-visual-box{background:#FFFFFF;border:2px dashed #243126;border-radius:10px;padding:18px 20px;text-align:center;margin:14px 0;color:#1F2B22}
+.barcode-svg{width:100%;max-width:420px;height:68px;display:block;margin:8px auto}
+.barcode-digits{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:18px;font-weight:700;letter-spacing:3px;color:#1F2B22;margin-top:6px}
+
+@media(max-width:900px){
+  .cashout-path-tabs{grid-template-columns:1fr}
+}

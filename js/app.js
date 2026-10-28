@@ -5,9 +5,13 @@ import {
   verticalLaborRules,
   neobankRoutingCatalog,
   remittanceCorridors,
-  openPayrollCardDisclosures
+  openPayrollCardDisclosures,
+  memberBankBranches,
+  retailBarcodeMerchants,
+  freeAtmDirectory,
+  unbankedRelationalSchema
 } from './data.js';
-import {THEMES, applyTheme, loadSavedTheme, listThemes} from './theme.js';
+import {THEMES, applyTheme, loadSavedTheme, listThemes, toggleFullscreen, isFullscreenActive} from './theme.js';
 import {
   money,
   escapeHTML as e,
@@ -21,6 +25,8 @@ import {
   updateWorkerSplitDeposit,
   pushInstantShiftTips,
   sendBilingualWhatsappPaystub,
+  findFreeAtmsByZip,
+  generateWorkerCashOutPass,
   defaultUnbankedEmployeeId,
   saveState,
   loadState
@@ -231,6 +237,264 @@ function renderCockpit() {
   `;
 }
 
+
+function renderSacarEfectivoGratis(selectedStub, isEs) {
+  const path = state.unbanked.cashOutPath || 'path_a_teller';
+  const bankId = state.unbanked.tellerBankId || 'chase';
+  const bank = memberBankBranches.find(b => b.id === bankId) || memberBankBranches[0];
+  const tellerMode = state.unbanked.tellerAmountMode || 'exact_net';
+  const tellerExactAmount = tellerMode === 'custom_penny'
+    ? Math.round(Math.max(1, Number(state.unbanked.tellerCustomAmount || 1143.62)) * 100) / 100
+    : selectedStub.netPay;
+  const tellerFeeSaved3Pct = Math.round(tellerExactAmount * 0.03 * 100) / 100;
+  const tellerFeeSaved5Pct = Math.round(tellerExactAmount * 0.05 * 100) / 100;
+
+  const merchantId = state.unbanked.barcodeMerchantId || 'walmart';
+  const merchant = retailBarcodeMerchants.find(m => m.id === merchantId) || retailBarcodeMerchants[0];
+  const barcodeChoice = String(state.unbanked.barcodeAmountChoice ?? '500');
+  const rawBarcodeAmount = barcodeChoice === 'full'
+    ? Math.min(selectedStub.netPay, merchant.maxPerTx)
+    : Math.min(Number(barcodeChoice) || 200, selectedStub.netPay, merchant.maxPerTx);
+  const barcodeAmount = Math.round(Math.max(20, rawBarcodeAmount) * 100) / 100;
+  const barcodeFeeMode = state.unbanked.barcodeFeeMode || 'employer_sponsored';
+  const barcodeFee = barcodeFeeMode === 'network_passthrough' ? merchant.networkPassThroughFee : 0.00;
+  const barcodeTokenPreview = `7942 8817 4403 ${selectedStub.accountLast4 || '9042'}`;
+
+  const zipQuery = state.unbanked.atmZipQuery || '94596';
+  const matchingAtms = findFreeAtmsByZip(zipQuery);
+  const txList = state.unbanked.cashOutTransactions || [];
+
+  let activePathPanel = '';
+  if (path === 'path_a_teller') {
+    activePathPanel = `
+      <div class="form-grid">
+        <label>${isEs ? 'Banco Miembro Visa / Mastercard (Sin Tener Cuenta Ahí)' : 'Participating Visa / Mastercard Member Bank (No Account Required)'}
+          <select data-unbanked="tellerBankId" aria-label="Select Member Bank">
+            ${memberBankBranches.map(b => `<option value="${b.id}" ${b.id === bank.id ? 'selected' : ''}>${e(b.name)}</option>`).join('')}
+          </select>
+        </label>
+        <label>${isEs ? 'Modo de Retiro en Ventanilla' : 'Teller Cash Withdrawal Amount Mode'}
+          <select data-unbanked="tellerAmountMode" aria-label="Teller Withdrawal Mode">
+            <option value="exact_net" ${tellerMode === 'exact_net' ? 'selected' : ''}>${isEs ? `100% del Pago Neto Exacto (${money(selectedStub.netPay)})` : `100% of Exact Net Paycheck (${money(selectedStub.netPay)})`}</option>
+            <option value="custom_penny" ${tellerMode === 'custom_penny' ? 'selected' : ''}>${isEs ? 'Monto Personalizado Hasta el Último Centavo' : 'Custom Exact-Penny Amount'}</option>
+          </select>
+        </label>
+        ${tellerMode === 'custom_penny' ? `
+          <label>${isEs ? 'Monto Exacto a Retirar ($ y Centavos)' : 'Custom Exact Dollar & Cent Amount ($)'}
+            <input type="number" step="0.01" min="1" value="${tellerExactAmount}" data-unbanked="tellerCustomAmount">
+          </label>
+        ` : ''}
+      </div>
+
+      <div class="teller-pass-card" data-testid="teller-pass-card">
+        <div class="teller-pass-header">
+          <div>
+            <span class="eyebrow">VISA CORE RULES § 5.4.2.4 · CAL. LAB. CODE § 212(a)(1) OTC CASH PASS</span>
+            <h3 style="margin:2px 0 0;font-size:18px">${e(bank.name)} — ${isEs ? 'Pase Oficial para Cajero de Ventanilla' : 'Official Bank Teller Cash-Out Pass'}</h3>
+          </div>
+          <div>
+            <div class="teller-pass-amount">${money(tellerExactAmount)}</div>
+            <small class="mono">${isEs ? 'Comisión: $0.00 (100% Efectivo)' : 'Worker Fee: $0.00 (100% Exact Penny)'}</small>
+          </div>
+        </div>
+
+        <div class="teller-script-box">
+          <strong>SHOW THIS SCREEN TO THE BANK TELLER (ENGLISH INSTRUCTIONS FOR TELLER):</strong>
+          "Hello Teller: Please process a <u>$0.00-fee Visa Over-the-Counter (OTC) Manual Cash Disbursement</u> for the exact amount of <strong>${money(tellerExactAmount)}</strong> from this Open Payroll Visa Debit Card (ending in <strong>•••• ${e(selectedStub.accountLast4 || '9042')}</strong>, Cardholder: <strong>${e(selectedStub.name)}</strong>). Per <strong>Visa Core Rules § 5.4.2.4</strong> and <strong>California Labor Code § 212(a)(1)</strong>, no bank account at this branch is required and 100% down to the exact cent may be withdrawn."
+        </div>
+
+        <div class="callout" style="margin-top:10px">
+          <strong>${isEs ? '🇲🇽 Instrucciones para Ti en Español:' : '🇺🇸 Worker Instructions (Bilingual):'}</strong>
+          <p>${isEs
+            ? `Camina a cualquier ventanilla de <strong>${e(bank.name)}</strong>, muestra esta pantalla junto con tu identificación (Matrícula Consular, Pasaporte o ID estatal) y tu tarjeta Open Payroll Visa (•••• ${e(selectedStub.accountLast4 || '9042')}). El cajero te entregará <strong>${money(tellerExactAmount)}</strong> en billetes y monedas exactas con <strong>$0.00 de comisión</strong> (ahorras <strong>${money(tellerFeeSaved3Pct)}–${money(tellerFeeSaved5Pct)}</strong> comparado con una Casa de Cambio del 3%–5%).`
+            : `Walk up to any teller window at <strong>${e(bank.name)}</strong>, show this screen along with your ID (Matrícula Consular, Foreign Passport, or State ID) and your Open Payroll Visa Card (•••• ${e(selectedStub.accountLast4 || '9042')}). The teller will hand you <strong>${money(tellerExactAmount)}</strong> down to the exact penny for <strong>$0.00</strong> (saving <strong>${money(tellerFeeSaved3Pct)}–${money(tellerFeeSaved5Pct)}</strong> vs. a 3%–5% check casher).`}</p>
+        </div>
+
+        <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          ${button(
+            isEs ? `🏦 Emitir Pase de Ventanilla Exacto (${money(tellerExactAmount)} · $0.00)` : `🏦 Generate Exact-Penny Teller Pass (${money(tellerExactAmount)} · $0.00 Fee)`,
+            'generate-cashout-pass',
+            'primary'
+          )}
+          ${badge(isEs ? `Ahorra ${money(tellerFeeSaved3Pct)}–${money(tellerFeeSaved5Pct)} vs. Casa de Cambio` : `Saves ${money(tellerFeeSaved3Pct)}–${money(tellerFeeSaved5Pct)} vs. Check Casher`, 'positive')}
+        </div>
+      </div>
+    `;
+  } else if (path === 'path_b_barcode') {
+    activePathPanel = `
+      <div class="form-grid">
+        <label>${isEs ? 'Tienda / Supermercado con Retiro en Caja' : 'Retail Register Cash-Out Store'}
+          <select data-unbanked="barcodeMerchantId" aria-label="Select Retail Barcode Merchant">
+            ${retailBarcodeMerchants.map(m => `<option value="${m.id}" ${m.id === merchant.id ? 'selected' : ''}>${e(m.name)} (Max ${m.maxPerTx})</option>`).join('')}
+          </select>
+        </label>
+        <label>${isEs ? 'Monto de Efectivo a Retirar en Caja' : 'Register Cash Pickup Amount'}
+          <select data-unbanked="barcodeAmountChoice" aria-label="Select Barcode Cash Amount">
+            <option value="200" ${barcodeChoice === '200' ? 'selected' : ''}>$200.00 Cash</option>
+            <option value="500" ${barcodeChoice === '500' ? 'selected' : ''}>$500.00 Cash</option>
+            <option value="full" ${barcodeChoice === 'full' ? 'selected' : ''}>${isEs ? `Máximo Disponible (${Math.min(selectedStub.netPay, merchant.maxPerTx).toFixed(2)})` : `Max Available (${Math.min(selectedStub.netPay, merchant.maxPerTx).toFixed(2)})`}</option>
+          </select>
+        </label>
+        <label>${isEs ? 'Política de Comisión de Red' : 'Network Fee Policy'}
+          <select data-unbanked="barcodeFeeMode" aria-label="Select Barcode Fee Mode">
+            <option value="employer_sponsored" ${barcodeFeeMode === 'employer_sponsored' ? 'selected' : ''}>${isEs ? '$0.00 Gratis (Patrocinado por Empleador / Intercambio)' : '$0.00 Free (Employer / Interchange Sponsored)'}</option>
+            <option value="network_passthrough" ${barcodeFeeMode === 'network_passthrough' ? 'selected' : ''}>${isEs ? '$1.00 Tarifa Plana de Red (vs. $36–$60 Casa de Cambio)' : '$1.00 Flat Network Pass-Through (vs. $36–$60 Check Casher)'}</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="barcode-visual-box" data-testid="barcode-visual-box">
+        <span class="eyebrow">${e(merchant.network)} · ${e(merchant.name)}</span>
+        <h3 style="margin:4px 0;font-size:20px">${isEs ? `Retiro en Caja Registradora: ${money(barcodeAmount)}` : `Register Cash Pickup: ${money(barcodeAmount)}`} · ${isEs ? `Comisión: ${money(barcodeFee)}` : `Fee: ${money(barcodeFee)}`}</h3>
+        <svg class="barcode-svg" viewBox="0 0 360 68" role="img" aria-label="Retail Cash-Out Barcode">
+          <rect x="10" y="6" width="6" height="56" fill="#1F2B22"/><rect x="20" y="6" width="3" height="56" fill="#1F2B22"/><rect x="27" y="6" width="9" height="56" fill="#1F2B22"/><rect x="40" y="6" width="3" height="56" fill="#1F2B22"/><rect x="48" y="6" width="6" height="56" fill="#1F2B22"/><rect x="58" y="6" width="12" height="56" fill="#1F2B22"/><rect x="74" y="6" width="3" height="56" fill="#1F2B22"/><rect x="82" y="6" width="6" height="56" fill="#1F2B22"/><rect x="93" y="6" width="9" height="56" fill="#1F2B22"/><rect x="106" y="6" width="3" height="56" fill="#1F2B22"/><rect x="114" y="6" width="6" height="56" fill="#1F2B22"/><rect x="124" y="6" width="12" height="56" fill="#1F2B22"/><rect x="140" y="6" width="3" height="56" fill="#1F2B22"/><rect x="148" y="6" width="9" height="56" fill="#1F2B22"/><rect x="161" y="6" width="6" height="56" fill="#1F2B22"/><rect x="171" y="6" width="3" height="56" fill="#1F2B22"/><rect x="179" y="6" width="12" height="56" fill="#1F2B22"/><rect x="195" y="6" width="6" height="56" fill="#1F2B22"/><rect x="205" y="6" width="3" height="56" fill="#1F2B22"/><rect x="213" y="6" width="9" height="56" fill="#1F2B22"/><rect x="226" y="6" width="6" height="56" fill="#1F2B22"/><rect x="236" y="6" width="3" height="56" fill="#1F2B22"/><rect x="244" y="6" width="12" height="56" fill="#1F2B22"/><rect x="260" y="6" width="3" height="56" fill="#1F2B22"/><rect x="268" y="6" width="9" height="56" fill="#1F2B22"/><rect x="281" y="6" width="6" height="56" fill="#1F2B22"/><rect x="291" y="6" width="3" height="56" fill="#1F2B22"/><rect x="299" y="6" width="12" height="56" fill="#1F2B22"/><rect x="315" y="6" width="6" height="56" fill="#1F2B22"/><rect x="325" y="6" width="3" height="56" fill="#1F2B22"/><rect x="333" y="6" width="9" height="56" fill="#1F2B22"/><rect x="346" y="6" width="4" height="56" fill="#1F2B22"/>
+        </svg>
+        <div class="barcode-digits">${e(barcodeTokenPreview)}</div>
+        <p style="margin-top:8px;font-size:13px"><strong>${isEs ? 'Instrucciones en Caja:' : 'Cashier Instructions:'}</strong> ${e(isEs ? merchant.instructionsEs : merchant.instructionsEn)}</p>
+      </div>
+
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        ${button(
+          isEs ? `📲 Generar Código de Barras de Efectivo (${money(barcodeAmount)})` : `📲 Generate Register Cash-Out Barcode (${money(barcodeAmount)})`,
+          'generate-cashout-pass',
+          'primary'
+        )}
+        ${badge(isEs ? 'Ahorra 97%+ vs. Casa de Cambio (3%–5%)' : 'Saves 97%+ vs. Check Casher (3%–5%)', 'positive')}
+      </div>
+    `;
+  } else {
+    activePathPanel = `
+      <div class="form-grid" style="align-items:end">
+        <label>${isEs ? 'Buscar Cajero Gratis por Código Postal (ZIP) o Ciudad' : 'Search Free ATMs by ZIP Code or City'}
+          <input type="text" value="${e(zipQuery)}" data-unbanked="atmZipQuery" placeholder="94596, 94520, 94601, 75001">
+        </label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;padding-bottom:4px">
+          ${['94596', '94520', '94601', '75001'].map(z => `
+            <button type="button" class="btn ${zipQuery === z ? 'primary' : ''}" data-action="set-atm-zip" data-zip="${z}">ZIP ${z}</button>
+          `).join('')}
+        </div>
+      </div>
+
+      <table class="data-table" style="margin-top:10px" data-testid="free-atm-table">
+        <thead>
+          <tr>
+            <th>${isEs ? 'Tienda / Cajero Allpoint o MoneyPass' : 'Store / Allpoint or MoneyPass ATM'}</th>
+            <th>${isEs ? 'Dirección y Zona' : 'Address & Neighborhood'}</th>
+            <th>${isEs ? 'Límite Diario / NFC' : 'Daily Limit / NFC'}</th>
+            <th>${isEs ? 'Comisión' : 'Worker Fee'}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${matchingAtms.map(atm => `
+            <tr>
+              <td><strong>${e(atm.venue)}</strong><br><small>${e(atm.network)} · ${e(atm.hours)}</small></td>
+              <td>${e(atm.address)}<br><small>${e(atm.neighborhood)} (${e(atm.distance)})</small></td>
+              <td class="mono">${atm.dailyLimit}/day<br><small>${atm.nfcCardless ? 'Apple / Google Pay NFC Tap' : 'Card Insert'}</small></td>
+              <td>${badge('$0.00 GRATIS', 'positive')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        ${button(
+          isEs ? `🏧 Autorizar Retiro NFC Sin Tarjeta en ${matchingAtms[0].venue} ($0.00)` : `🏧 Authorize Cardless NFC ATM Pickup at ${matchingAtms[0].venue} ($0.00)`,
+          'generate-cashout-pass',
+          'primary'
+        )}
+        ${badge('55,000+ Allpoint & MoneyPass ATMs ($0.00 Fee)', 'positive')}
+      </div>
+    `;
+  }
+
+  return `
+    <section class="card" style="margin-bottom:1.25rem" id="sacar-efectivo-gratis" data-testid="sacar-efectivo-section">
+      <div class="card-head">
+        <div>
+          <span class="eyebrow">${isEs
+            ? 'SACAR EFECTIVO GRATIS · CERO CASA DE CAMBIO (AHORRA 3%–5% / $36–$60 POR CHEQUE)'
+            : 'SACAR EFECTIVO GRATIS · ZERO CHECK-CASHER TAX (SAVES 3%–5% / $36–$60 PER PAYCHECK)'}</span>
+          <h2>${isEs
+            ? `¿Necesitas Efectivo Físico Hoy, ${selectedStub.name}? 3 Vías para Sacar Billetes por $0.00 (Sin Cuenta Bancaria)`
+            : `Need Physical Green Cash Today, ${selectedStub.name}? 3 Frictionless Ways to Pull Cash for $0.00`}</h2>
+        </div>
+        ${badge(isEs ? '0% Casa de Cambio · Cal. Lab. Code § 212(a)(1)' : '0% Check Casher · Cal. Lab. Code § 212(a)(1)', 'positive')}
+      </div>
+
+      <p class="muted">${isEs
+        ? 'José reportó que ~50% de los trabajadores hispanos cambian su cheque en una Casa de Cambio y pierden del 3% al 5% ($36–$60 por cada $1,200). Con Open Payroll OS, el trabajador obtiene efectivo físico en billetes de $20 y $100 el mismo viernes por $0.00 usando cualquiera de estas 3 vías:'
+        : 'Instead of losing 3% to 5% ($36–$60 per $1,200 paycheck) at a check-cashing storefront, Open Payroll OS gives workers immediate physical $20 and $100 bills on payday for $0.00 through three built-in cash pickup channels:'}</p>
+
+      <div class="cashout-path-tabs" role="tablist" aria-label="Free Cash Pickup Channels">
+        <button type="button" class="cashout-path-btn ${path === 'path_a_teller' ? 'active' : ''}" data-action="select-cashout-path" data-path="path_a_teller" aria-selected="${path === 'path_a_teller'}">
+          <strong>${isEs ? '🏦 Vía A · Pase para Cajero de Banco ($0.00)' : '🏦 Path A · Bank Teller Exact-Penny Pass ($0.00)'}</strong>
+          <small>${isEs ? 'Retira el 100% hasta el último centavo en cualquier Chase, BofA, Wells Fargo o Citi sin tener cuenta ahí (Visa § 5.4.2.4).' : 'Withdraw 100% of wages down to the exact cent at any Chase, BofA, Wells Fargo, or Citi teller window with no bank account required.'}</small>
+        </button>
+        <button type="button" class="cashout-path-btn ${path === 'path_b_barcode' ? 'active' : ''}" data-action="select-cashout-path" data-path="path_b_barcode" aria-selected="${path === 'path_b_barcode'}">
+          <strong>${isEs ? '📲 Vía B · Código de Barras en Caja ($0–$1)' : '📲 Path B · Retail Register Barcode ($0–$1 Flat)'}</strong>
+          <small>${isEs ? 'Muestra el código de barras en la caja de Walmart, 7-Eleven, CVS, Walgreens o Cardenas Markets y recibe efectivo al instante.' : 'Scan barcode at Walmart, 7-Eleven, CVS, Walgreens, or Cardenas Markets register for instant cash pickup.'}</small>
+        </button>
+        <button type="button" class="cashout-path-btn ${path === 'path_c_atm' ? 'active' : ''}" data-action="select-cashout-path" data-path="path_c_atm" aria-selected="${path === 'path_c_atm'}">
+          <strong>${isEs ? '🏧 Vía C · 55,000+ Cajeros ATM Gratis ($0.00)' : '🏧 Path C · 55,000+ Free NFC ATMs ($0.00)'}</strong>
+          <small>${isEs ? 'Acerca tu celular con Apple Pay / Google Wallet en cajeros Allpoint / MoneyPass dentro de Target, CVS, 7-Eleven y Walgreens.' : 'Tap Apple Pay / Google Wallet at 55,000+ Allpoint & MoneyPass ATMs inside Target, CVS, 7-Eleven, and Walgreens.'}</small>
+        </button>
+      </div>
+
+      ${activePathPanel}
+
+      <div style="margin-top:16px">
+        <span class="eyebrow">${isEs ? `HISTORIAL DE PASES Y RETIROS DE EFECTIVO (${txList.length})` : `GENERATED CASH-OUT PASSES & TRANSACTIONS (${txList.length})`}</span>
+        ${txList.length === 0 ? `<p class="muted" style="margin-top:6px">${isEs ? 'Haz clic en el botón de acción de arriba para generar un Pase de Ventanilla Bancaria ($0), Código de Barras de Tienda o Retiro NFC en Cajero ATM.' : 'Click the action button above to generate a live Bank Teller Exact-Penny Pass ($0), Retail Register Barcode, or Cardless NFC ATM Pickup.'}</p>` : `
+          <table class="data-table" style="margin-top:8px">
+            <thead>
+              <tr>
+                <th>ID / Trabajador</th>
+                <th>Vía / Banco o Tienda</th>
+                <th>Efectivo Exacto</th>
+                <th>Comisión</th>
+                <th>Ahorro vs. Casa de Cambio</th>
+                <th>Token / Referencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${txList.map(tx => `
+                <tr>
+                  <td class="mono"><strong>${e(tx.cash_out_id)}</strong><br><small>${e(tx.worker_name)}</small></td>
+                  <td><strong>${e(tx.cash_out_path)}</strong><br><small>${e(tx.merchant_or_bank_name)}</small></td>
+                  <td class="mono"><strong>${money(tx.exact_amount)}</strong></td>
+                  <td>${badge(money(tx.worker_fee), 'positive')}</td>
+                  <td class="mono">+${money(tx.casa_de_cambio_fee_saved)} saved</td>
+                  <td class="mono"><small>${e(tx.reference_or_barcode_token)}</small></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `}
+      </div>
+    </section>
+
+    <section class="card" style="margin-bottom:1.25rem">
+      <div class="card-head">
+        <div>
+          <span class="eyebrow">DETERMINISTIC RELATIONAL DATA MODEL · @OPENSCAFFOLD/PAYROLL UNBANKED LEDGER</span>
+          <h2>${isEs ? 'Esquema Relacional Determinista (WORKERS · WORKER_PAYOUT_DESTINATIONS · PAYCARD_ACCOUNTS · CASH_OUT_TRANSACTIONS)' : 'Unbanked Paycard & Cash-Out Relational Schema (WORKERS · WORKER_PAYOUT_DESTINATIONS · PAYCARD_ACCOUNTS · CASH_OUT_TRANSACTIONS)'}</h2>
+        </div>
+        ${badge('PostgreSQL / Supabase RLS Ready', 'info')}
+      </div>
+      <div class="grid-2">
+        ${unbankedRelationalSchema.map(tbl => `
+          <div class="callout">
+            <strong>${e(tbl.table)} — PK: <span class="mono">${e(tbl.primaryKey)}</span></strong>
+            <p class="mono" style="margin-top:6px;font-size:12px;line-height:1.5">
+              ${tbl.columns.map(col => `• ${e(col)}`).join('<br>')}
+            </p>
+          </div>
+        `).join('')}
+      </div>
+    </section>
+  `;
+}
+
 function renderUnbankedWallet() {
   const summary = computePayRunSummary(state);
   const lang = state.unbanked.lang === 'en' ? 'en' : 'es';
@@ -287,6 +551,8 @@ function renderUnbankedWallet() {
         <p>${isEs ? 'Push instantáneo Visa Direct / FedNow sin efectivo en caja + Crédito Fiscal IRS Form 8846' : 'Instant Visa Direct / FedNow push with zero safe cash risk + Auto IRS Form 8846 tip credit'}</p>
       </article>
     </div>
+
+    ${renderSacarEfectivoGratis(selectedStub, isEs)}
 
     <div class="grid-2">
       <section class="card">
@@ -985,6 +1251,28 @@ document.addEventListener('click', event => {
         ? `📲 Recibo digital CA § 226(a) enviado por WhatsApp/SMS a ${delivery.employeeName} (${money(delivery.netPay)} neto)`
         : `📲 Delivered CA § 226(a) itemized WhatsApp/SMS paystub to ${delivery.employeeName} (${money(delivery.netPay)} net)`);
     }
+  } else if (action === 'select-cashout-path') {
+    state.unbanked.cashOutPath = actionBtn.dataset.path || 'path_a_teller';
+    persist();
+    render();
+  } else if (action === 'set-atm-zip') {
+    state.unbanked.atmZipQuery = actionBtn.dataset.zip || '94596';
+    persist();
+    render();
+  } else if (action === 'generate-cashout-pass') {
+    const rec = generateWorkerCashOutPass(state);
+    persist();
+    render();
+    if (rec) {
+      notify(state.unbanked.lang === 'es'
+        ? `💵 ${rec.cash_out_id}: ${money(rec.exact_amount)} listo en ${rec.merchant_or_bank_name} (Comisión ${money(rec.worker_fee)} · Ahorras ${money(rec.casa_de_cambio_fee_saved)})`
+        : `💵 ${rec.cash_out_id}: ${money(rec.exact_amount)} ready at ${rec.merchant_or_bank_name} (Fee ${money(rec.worker_fee)} · Saved ${money(rec.casa_de_cambio_fee_saved)})`);
+    }
+  } else if (action === 'toggle-fullscreen') {
+    toggleFullscreen().then(() => {
+      const btn = $('#fullscreen-toggle');
+      if (btn) btn.setAttribute('aria-pressed', String(isFullscreenActive()));
+    });
   }
 });
 
@@ -1017,6 +1305,8 @@ document.addEventListener('change', event => {
       }
     } else if (key === 'instantTipAmount') {
       state.unbanked.instantTipAmount = Number(target.value) || 0;
+    } else if (key === 'tellerCustomAmount') {
+      state.unbanked.tellerCustomAmount = Number(target.value) || 0;
     } else {
       state.unbanked[key] = target.value;
     }

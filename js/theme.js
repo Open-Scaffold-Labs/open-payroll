@@ -120,3 +120,56 @@ export function loadSavedTheme(root, storage = globalThis.localStorage) {
   return applyTheme(name, root, storage);
 }
 export function listThemes() { return Object.entries(THEMES).map(([key, theme]) => ({key, label: theme.label})); }
+
+export const FULLSCREEN_OPTOUT_KEY = 'openscaffold.fullscreen.optout.v1';
+export function isFullscreenActive(doc = globalThis.document) {
+  return Boolean(doc && (doc.fullscreenElement || doc.webkitFullscreenElement));
+}
+export function setFullscreenOptOut(optedOut, win = globalThis.window) {
+  const val = optedOut ? '1' : '0';
+  try {
+    win?.sessionStorage?.setItem(FULLSCREEN_OPTOUT_KEY, val);
+    win?.localStorage?.setItem(FULLSCREEN_OPTOUT_KEY, val);
+  } catch {}
+}
+export function isFullscreenOptedOut(win = globalThis.window) {
+  try {
+    return win?.sessionStorage?.getItem(FULLSCREEN_OPTOUT_KEY) === '1' || win?.localStorage?.getItem(FULLSCREEN_OPTOUT_KEY) === '1';
+  } catch { return false; }
+}
+export async function enterFullscreen(options = {}) {
+  const doc = options.doc || globalThis.document;
+  const win = options.win || globalThis.window;
+  const root = options.root || doc?.documentElement;
+  if (!root) return false;
+  setFullscreenOptOut(false, win);
+  const req = root.requestFullscreen || root.webkitRequestFullscreen;
+  if (typeof req !== 'function') return false;
+  try { await req.call(root); return true; } catch { return false; }
+}
+export async function exitFullscreen(options = {}) {
+  const doc = options.doc || globalThis.document;
+  const win = options.win || globalThis.window;
+  setFullscreenOptOut(true, win);
+  const exit = doc?.exitFullscreen || doc?.webkitExitFullscreen;
+  if (typeof exit !== 'function') return false;
+  try { await exit.call(doc); return true; } catch { return false; }
+}
+export async function toggleFullscreen(options = {}) {
+  const doc = options.doc || globalThis.document;
+  if (isFullscreenActive(doc)) { await exitFullscreen(options); return { active: false, optedOut: true }; }
+  const ok = await enterFullscreen(options);
+  return { active: ok, optedOut: false };
+}
+export function installAutoFullscreen(options = {}) {
+  const doc = options.doc || globalThis.document;
+  const win = options.win || globalThis.window;
+  if (!doc || typeof doc.addEventListener !== 'function') return { dispose() {} };
+  const onFirstGesture = (e) => {
+    if (e?.target?.closest?.('[data-testid="os-fullscreen-toggle-btn"]')) return;
+    if (isFullscreenOptedOut(win) || isFullscreenActive(doc)) return;
+    enterFullscreen({ doc, win });
+  };
+  doc.addEventListener('click', onFirstGesture, { capture: true });
+  return { dispose() {} };
+}

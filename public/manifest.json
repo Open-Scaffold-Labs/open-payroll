@@ -1,0 +1,8 @@
+{
+  "name": "Open Payroll",
+  "short_name": "Open Payroll",
+  "start_url": "/",
+  "display": "fullscreen",
+  "background_color": "#e7d9c1",
+  "theme_color": "#1f2b22"
+}
